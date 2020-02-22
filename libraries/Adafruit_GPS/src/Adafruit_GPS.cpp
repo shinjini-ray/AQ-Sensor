@@ -146,33 +146,31 @@ static bool strStartsWith(const char *str, const char *prefix);
 */
 /**************************************************************************/
 bool Adafruit_GPS::begin(uint32_t baud_or_i2caddr) {
-#if (defined(__AVR__) || defined(ESP8266)) && defined(USE_SW_SERIAL)
   if (gpsSwSerial) {
     gpsSwSerial->begin(baud_or_i2caddr);
   }
-#endif
   if (gpsHwSerial) {
     gpsHwSerial->begin(baud_or_i2caddr);
   }
-  if (gpsI2C) {
-    gpsI2C->begin();
-    if (baud_or_i2caddr > 0x7F) {
-      _i2caddr = GPS_DEFAULT_I2C_ADDR;
-    } else {
-      _i2caddr = baud_or_i2caddr;
-    }
-    // A basic scanner, see if it ACK's
-    gpsI2C->beginTransmission(_i2caddr);
-    return (gpsI2C->endTransmission() == 0);
-  }
-  if (gpsSPI) {
-    gpsSPI->begin();
-    gpsSPI_settings = SPISettings(baud_or_i2caddr, MSBFIRST, SPI_MODE0);
-    if (gpsSPI_cs >= 0) {
-      pinMode(gpsSPI_cs, OUTPUT);
-      digitalWrite(gpsSPI_cs, HIGH);
-    }
-  }
+  // if (gpsI2C) {
+  //   gpsI2C->begin();
+  //   if (baud_or_i2caddr > 0x7F) {
+  //     _i2caddr = GPS_DEFAULT_I2C_ADDR;
+  //   } else {
+  //     _i2caddr = baud_or_i2caddr;
+  //   }
+  //   // A basic scanner, see if it ACK's
+  //   gpsI2C->beginTransmission(_i2caddr);
+  //   return (gpsI2C->endTransmission() == 0);
+  // }
+  // if (gpsSPI) {
+  //   gpsSPI->begin();
+  //   gpsSPI_settings = SPISettings(baud_or_i2caddr, MSBFIRST, SPI_MODE0);
+  //   if (gpsSPI_cs >= 0) {
+  //     pinMode(gpsSPI_cs, OUTPUT);
+  //     digitalWrite(gpsSPI_cs, HIGH);
+  //   }
+  // }
 
   delay(10);
   return true;
@@ -184,12 +182,10 @@ bool Adafruit_GPS::begin(uint32_t baud_or_i2caddr) {
     @param ser Pointer to SoftwareSerial device
 */
 /**************************************************************************/
-#if (defined(__AVR__) || defined(ESP8266)) && defined(USE_SW_SERIAL)
 Adafruit_GPS::Adafruit_GPS(SoftwareSerial *ser) {
   common_init();     // Set everything to common state, then...
   gpsSwSerial = ser; // ...override gpsSwSerial with value passed.
 }
-#endif
 
 /**************************************************************************/
 /*!
@@ -208,23 +204,23 @@ Adafruit_GPS::Adafruit_GPS(HardwareSerial *ser) {
     @param theWire Pointer to an I2C TwoWire object
 */
 /**************************************************************************/
-Adafruit_GPS::Adafruit_GPS(TwoWire *theWire) {
-  common_init();    // Set everything to common state, then...
-  gpsI2C = theWire; // ...override gpsI2C
-}
+// Adafruit_GPS::Adafruit_GPS(TwoWire *theWire) {
+//   common_init();    // Set everything to common state, then...
+//   //gpsI2C = theWire; // ...override gpsI2C
+// }
 
-/**************************************************************************/
-/*!
-    @brief Constructor when using SPI
-    @param theSPI Pointer to an SPI device object
-    @param cspin The pin connected to the GPS CS, can be -1 if unused
-*/
-/**************************************************************************/
-Adafruit_GPS::Adafruit_GPS(SPIClass *theSPI, int8_t cspin) {
-  common_init();   // Set everything to common state, then...
-  gpsSPI = theSPI; // ...override gpsSPI
-  gpsSPI_cs = cspin;
-}
+// /**************************************************************************/
+// /*!
+//     @brief Constructor when using SPI
+//     @param theSPI Pointer to an SPI device object
+//     @param cspin The pin connected to the GPS CS, can be -1 if unused
+// */
+// /**************************************************************************/
+// Adafruit_GPS::Adafruit_GPS(SPIClass *theSPI, int8_t cspin) {
+//   common_init();   // Set everything to common state, then...
+//   // gpsSPI = theSPI; // ...override gpsSPI
+//   // gpsSPI_cs = cspin;
+// }
 
 /**************************************************************************/
 /*!
@@ -242,25 +238,23 @@ Adafruit_GPS::Adafruit_GPS() {
 */
 /**************************************************************************/
 void Adafruit_GPS::common_init(void) {
-#if (defined(__AVR__) || defined(ESP8266)) && defined(USE_SW_SERIAL)
   gpsSwSerial = NULL; // Set both to NULL, then override correct
-#endif
   gpsHwSerial = NULL; // port pointer in corresponding constructor
-  gpsI2C = NULL;
-  gpsSPI = NULL;
+  // gpsI2C = NULL;
+  // gpsSPI = NULL;
   recvdflag = false;
   paused = false;
   lineidx = 0;
   currentline = line1;
   lastline = line2;
 
-  hour = minute = seconds = year = month = day = fixquality = fixquality_3d =
-      satellites = 0;  // uint8_t
-  lat = lon = mag = 0; // char
-  fix = false;         // bool
-  milliseconds = 0;    // uint16_t
-  latitude = longitude = geoidheight = altitude = speed = angle = magvariation =
-      HDOP = VDOP = PDOP = 0.0; // nmea_float_t
+  // hour = minute = seconds = year = month = day = fixquality = fixquality_3d =
+  //     satellites = 0;  // uint8_t
+  // lat = lon = mag = 0; // char
+  // fix = false;         // bool
+  //milliseconds = 0;    // uint16_t
+  //latitude = longitude = 0.0; /* geoidheight = altitude = speed = angle = magvariation =
+  //    HDOP = VDOP = PDOP = 0.0; // nmea_float_t */
 #ifdef NMEA_EXTENSIONS
   data_init();
 #endif
@@ -298,10 +292,10 @@ size_t Adafruit_GPS::available(void) {
   if (gpsHwSerial) {
     return gpsHwSerial->available();
   }
-  if (gpsI2C || gpsSPI) {
-    return 1; // I2C/SPI doesnt have 'availability' so always has a byte at
-              // least to read!
-  }
+  // if (gpsI2C || gpsSPI) {
+  //   return 1; // I2C/SPI doesnt have 'availability' so always has a byte at
+  //             // least to read!
+  // }
   return 0;
 }
 
@@ -314,35 +308,33 @@ size_t Adafruit_GPS::available(void) {
 */
 /**************************************************************************/
 size_t Adafruit_GPS::write(uint8_t c) {
-#if (defined(__AVR__) || defined(ESP8266)) && defined(USE_SW_SERIAL)
   if (gpsSwSerial) {
     return gpsSwSerial->write(c);
   }
-#endif
   if (gpsHwSerial) {
     return gpsHwSerial->write(c);
   }
-  if (gpsI2C) {
-    gpsI2C->beginTransmission(_i2caddr);
-    if (gpsI2C->write(c) != 1) {
-      return 0;
-    }
-    if (gpsI2C->endTransmission(true) == 0) {
-      return 1;
-    }
-  }
-  if (gpsSPI) {
-    gpsSPI->beginTransaction(gpsSPI_settings);
-    if (gpsSPI_cs >= 0) {
-      digitalWrite(gpsSPI_cs, LOW);
-    }
-    c = gpsSPI->transfer(c);
-    if (gpsSPI_cs >= 0) {
-      digitalWrite(gpsSPI_cs, HIGH);
-    }
-    gpsSPI->endTransaction();
-    return 1;
-  }
+  // if (gpsI2C) {
+  //   gpsI2C->beginTransmission(_i2caddr);
+  //   if (gpsI2C->write(c) != 1) {
+  //     return 0;
+  //   }
+  //   if (gpsI2C->endTransmission(true) == 0) {
+  //     return 1;
+  //   }
+  // }
+  // if (gpsSPI) {
+  //   gpsSPI->beginTransaction(gpsSPI_settings);
+  //   if (gpsSPI_cs >= 0) {
+  //     digitalWrite(gpsSPI_cs, LOW);
+  //   }
+  //   c = gpsSPI->transfer(c);
+  //   if (gpsSPI_cs >= 0) {
+  //     digitalWrite(gpsSPI_cs, HIGH);
+  //   }
+  //   gpsSPI->endTransaction();
+  //   return 1;
+  // }
 
   return 0;
 }
@@ -361,65 +353,63 @@ char Adafruit_GPS::read(void) {
   if (paused || noComms)
     return c;
 
-#if (defined(__AVR__) || defined(ESP8266)) && defined(USE_SW_SERIAL)
   if (gpsSwSerial) {
     if (!gpsSwSerial->available())
       return c;
     c = gpsSwSerial->read();
   }
-#endif
   if (gpsHwSerial) {
     if (!gpsHwSerial->available())
       return c;
     c = gpsHwSerial->read();
   }
-  if (gpsI2C) {
-    if (_buff_idx <= _buff_max) {
-      c = _i2cbuffer[_buff_idx];
-      _buff_idx++;
-    } else {
-      // refill the buffer!
-      if (gpsI2C->requestFrom(0x10, GPS_MAX_I2C_TRANSFER, true) ==
-          GPS_MAX_I2C_TRANSFER) {
-        // got data!
-        _buff_max = 0;
-        char curr_char = 0;
-        for (int i = 0; i < GPS_MAX_I2C_TRANSFER; i++) {
-          curr_char = gpsI2C->read();
-          if ((curr_char == 0x0A) && (last_char != 0x0D)) {
-            // skip duplicate 0x0A's - but keep as part of a CRLF
-            continue;
-          }
-          last_char = curr_char;
-          _i2cbuffer[_buff_max] = curr_char;
-          _buff_max++;
-        }
-        _buff_max--; // back up to the last valid slot
-        if ((_buff_max == 0) && (_i2cbuffer[0] == 0x0A)) {
-          _buff_max = -1; // ahh there was nothing to read after all
-        }
-        _buff_idx = 0;
-      }
-      return c;
-    }
-  }
+  // if (gpsI2C) {
+  //   if (_buff_idx <= _buff_max) {
+  //     c = _i2cbuffer[_buff_idx];
+  //     _buff_idx++;
+  //   } else {
+  //     // refill the buffer!
+  //     if (gpsI2C->requestFrom(0x10, GPS_MAX_I2C_TRANSFER, true) ==
+  //         GPS_MAX_I2C_TRANSFER) {
+  //       // got data!
+  //       _buff_max = 0;
+  //       char curr_char = 0;
+  //       for (int i = 0; i < GPS_MAX_I2C_TRANSFER; i++) {
+  //         curr_char = gpsI2C->read();
+  //         if ((curr_char == 0x0A) && (last_char != 0x0D)) {
+  //           // skip duplicate 0x0A's - but keep as part of a CRLF
+  //           continue;
+  //         }
+  //         last_char = curr_char;
+  //         _i2cbuffer[_buff_max] = curr_char;
+  //         _buff_max++;
+  //       }
+  //       _buff_max--; // back up to the last valid slot
+  //       if ((_buff_max == 0) && (_i2cbuffer[0] == 0x0A)) {
+  //         _buff_max = -1; // ahh there was nothing to read after all
+  //       }
+  //       _buff_idx = 0;
+  //     }
+  //     return c;
+  //   }
+  // }
 
-  if (gpsSPI) {
-    do {
-      gpsSPI->beginTransaction(gpsSPI_settings);
-      if (gpsSPI_cs >= 0) {
-        digitalWrite(gpsSPI_cs, LOW);
-      }
-      c = gpsSPI->transfer(0xFF);
-      if (gpsSPI_cs >= 0) {
-        digitalWrite(gpsSPI_cs, HIGH);
-      }
-      gpsSPI->endTransaction();
-      // skip duplicate 0x0A's - but keep as part of a CRLF
-    } while (((c == 0x0A) && (last_char != 0x0D)) ||
-             (!isprint(c) && !isspace(c)));
-    last_char = c;
-  }
+  // if (gpsSPI) {
+  //   do {
+  //     gpsSPI->beginTransaction(gpsSPI_settings);
+  //     if (gpsSPI_cs >= 0) {
+  //       digitalWrite(gpsSPI_cs, LOW);
+  //     }
+  //     c = gpsSPI->transfer(0xFF);
+  //     if (gpsSPI_cs >= 0) {
+  //       digitalWrite(gpsSPI_cs, HIGH);
+  //     }
+  //     gpsSPI->endTransaction();
+  //     // skip duplicate 0x0A's - but keep as part of a CRLF
+  //   } while (((c == 0x0A) && (last_char != 0x0D)) ||
+  //            (!isprint(c) && !isspace(c)));
+  //   last_char = c;
+  // }
   // Serial.print(c);
 
   currentline[lineidx++] = c;
@@ -443,8 +433,8 @@ char Adafruit_GPS::read(void) {
     // Serial.println("----");
     lineidx = 0;
     recvdflag = true;
-    recvdTime = millis(); // time we got the end of the string
-    sentTime = firstChar;
+    // recvdTime = millis(); // time we got the end of the string
+    // sentTime = firstChar;
     firstChar = 0; // there are no characters yet
     return c;      // wait until next character to set time
   }
@@ -524,75 +514,75 @@ bool Adafruit_GPS::waitForSentence(const char *wait4me, uint8_t max,
     @return True on success, false if it failed
 */
 /**************************************************************************/
-bool Adafruit_GPS::LOCUS_StartLogger(void) {
-  sendCommand(PMTK_LOCUS_STARTLOG);
-  recvdflag = false;
-  return waitForSentence(PMTK_LOCUS_STARTSTOPACK);
-}
+// bool Adafruit_GPS::LOCUS_StartLogger(void) {
+//   sendCommand(PMTK_LOCUS_STARTLOG);
+//   recvdflag = false;
+//   return waitForSentence(PMTK_LOCUS_STARTSTOPACK);
+// }
 
-/**************************************************************************/
-/*!
-    @brief Stop the LOCUS logger
-    @return True on success, false if it failed
-*/
-/**************************************************************************/
-bool Adafruit_GPS::LOCUS_StopLogger(void) {
-  sendCommand(PMTK_LOCUS_STOPLOG);
-  recvdflag = false;
-  return waitForSentence(PMTK_LOCUS_STARTSTOPACK);
-}
+// /**************************************************************************/
+// /*!
+//     @brief Stop the LOCUS logger
+//     @return True on success, false if it failed
+// */
+// /**************************************************************************/
+// bool Adafruit_GPS::LOCUS_StopLogger(void) {
+//   sendCommand(PMTK_LOCUS_STOPLOG);
+//   recvdflag = false;
+//   return waitForSentence(PMTK_LOCUS_STARTSTOPACK);
+// }
 
-/**************************************************************************/
-/*!
-    @brief Read the logger status
-    @return True if we read the data, false if there was no response
-*/
-/**************************************************************************/
-bool Adafruit_GPS::LOCUS_ReadStatus(void) {
-  sendCommand(PMTK_LOCUS_QUERY_STATUS);
+// /**************************************************************************/
+// /*!
+//     @brief Read the logger status
+//     @return True if we read the data, false if there was no response
+// */
+// /**************************************************************************/
+// bool Adafruit_GPS::LOCUS_ReadStatus(void) {
+//   sendCommand(PMTK_LOCUS_QUERY_STATUS);
 
-  if (!waitForSentence("$PMTKLOG"))
-    return false;
+//   if (!waitForSentence("$PMTKLOG"))
+//     return false;
 
-  char *response = lastNMEA();
-  uint16_t parsed[10];
-  uint8_t i;
+//   char *response = lastNMEA();
+//   uint16_t parsed[10];
+//   uint8_t i;
 
-  for (i = 0; i < 10; i++)
-    parsed[i] = -1;
+//   for (i = 0; i < 10; i++)
+//     parsed[i] = -1;
 
-  response = strchr(response, ',');
-  for (i = 0; i < 10; i++) {
-    if (!response || (response[0] == 0) || (response[0] == '*'))
-      break;
-    response++;
-    parsed[i] = 0;
-    while ((response[0] != ',') && (response[0] != '*') && (response[0] != 0)) {
-      parsed[i] *= 10;
-      char c = response[0];
-      if (isDigit(c))
-        parsed[i] += c - '0';
-      else
-        parsed[i] = c;
-      response++;
-    }
-  }
-  LOCUS_serial = parsed[0];
-  LOCUS_type = parsed[1];
-  if (isAlpha(parsed[2])) {
-    parsed[2] = parsed[2] - 'a' + 10;
-  }
-  LOCUS_mode = parsed[2];
-  LOCUS_config = parsed[3];
-  LOCUS_interval = parsed[4];
-  LOCUS_distance = parsed[5];
-  LOCUS_speed = parsed[6];
-  LOCUS_status = !parsed[7];
-  LOCUS_records = parsed[8];
-  LOCUS_percent = parsed[9];
+//   response = strchr(response, ',');
+//   for (i = 0; i < 10; i++) {
+//     if (!response || (response[0] == 0) || (response[0] == '*'))
+//       break;
+//     response++;
+//     parsed[i] = 0;
+//     while ((response[0] != ',') && (response[0] != '*') && (response[0] != 0)) {
+//       parsed[i] *= 10;
+//       char c = response[0];
+//       if (isDigit(c))
+//         parsed[i] += c - '0';
+//       else
+//         parsed[i] = c;
+//       response++;
+//     }
+//   }
+//   LOCUS_serial = parsed[0];
+//   LOCUS_type = parsed[1];
+//   if (isAlpha(parsed[2])) {
+//     parsed[2] = parsed[2] - 'a' + 10;
+//   }
+//   LOCUS_mode = parsed[2];
+//   LOCUS_config = parsed[3];
+//   LOCUS_interval = parsed[4];
+//   LOCUS_distance = parsed[5];
+//   LOCUS_speed = parsed[6];
+//   LOCUS_status = !parsed[7];
+//   LOCUS_records = parsed[8];
+//   LOCUS_percent = parsed[9];
 
-  return true;
-}
+//   return true;
+// }
 
 /**************************************************************************/
 /*!
@@ -636,9 +626,9 @@ bool Adafruit_GPS::wakeup(void) {
     @return nmea_float_t value in seconds since last fix.
 */
 /**************************************************************************/
-nmea_float_t Adafruit_GPS::secondsSinceFix() {
-  return (millis() - lastFix) / 1000.;
-}
+// nmea_float_t Adafruit_GPS::secondsSinceFix() {
+//   return (millis() - lastFix) / 1000.;
+// }
 
 /**************************************************************************/
 /*!
@@ -647,9 +637,9 @@ nmea_float_t Adafruit_GPS::secondsSinceFix() {
     @return nmea_float_t value in seconds since last GPS time.
 */
 /**************************************************************************/
-nmea_float_t Adafruit_GPS::secondsSinceTime() {
-  return (millis() - lastTime) / 1000.;
-}
+// nmea_float_t Adafruit_GPS::secondsSinceTime() {
+//   return (millis() - lastTime) / 1000.;
+// }
 
 /**************************************************************************/
 /*!
@@ -658,9 +648,9 @@ nmea_float_t Adafruit_GPS::secondsSinceTime() {
     @return nmea_float_t value in seconds since last GPS date.
 */
 /**************************************************************************/
-nmea_float_t Adafruit_GPS::secondsSinceDate() {
-  return (millis() - lastDate) / 1000.;
-}
+// nmea_float_t Adafruit_GPS::secondsSinceDate() {
+//   return (millis() - lastDate) / 1000.;
+// }
 
 /**************************************************************************/
 /*!
@@ -668,7 +658,7 @@ nmea_float_t Adafruit_GPS::secondsSinceDate() {
     to make the timing look like the sentence arrived from the GPS.
 */
 /**************************************************************************/
-void Adafruit_GPS::resetSentTime() { sentTime = millis(); }
+//void Adafruit_GPS::resetSentTime() { sentTime = millis(); }
 
 /**************************************************************************/
 /*!

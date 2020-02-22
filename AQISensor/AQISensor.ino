@@ -1,12 +1,58 @@
-#include <Adafruit_GPS.h>
 #include <SoftwareSerial.h>
+#include <SD.h>
+#include <Adafruit_NeoPixel.h>
+#include "Adafruit_PMTK.h"
+
+#define chipSelect 10 // SD Pinout
+#define GPS_ENABLE 1  // Set to 0 if you want live AQI but no GPS tracking
+#define PIN        6  // LED Pinout
+#define DEBUG      0  // Set to 0 for SD logging, 1 for serial output
+
+/* LED Light Numbers */
+#define NUMPIXELS 8
+#define SYS       0
+#define GPS       1
+#define PMS       2
+#define SDC       3
+#define AQI       5
+/* LED Light meanings
+ *  0: System status light
+ *      Blue:   Setup complete, running correctly
+ *      Red:    Setup not complete, not running
+ *  1: GPS Status Light    
+ *      Red:    Not initialized
+ *      Blue:   Initialized and fixed
+ *      Yellow: Initialized but not fixed
+ *  2: Pm2.5 Sensor Status Light
+ *      Red:    Not initialized
+ *      Blue:   Initialized
+ *      Yellow: Error reading data
+ *  3: SD Card Status Light
+ *      Red:    Not initialized
+ *      Blue:   Initialized & file opened successfully
+ *      Yellow: Error Opening File
+ *  4: Not used
+ *  5: PM2.5 Levels
+ *      Color  | Hazard Level                  | Pm2.5 levels  | AQI
+ *      Green  | Good                          | 0 to 12.0     | 0 to 50
+ *      Yellow | Moderate                      | 12.1 to 35.4  | 51 to 100
+ *      Orange | Unhealthy for Sensitive Groups| 35.5 to 55.4  | 101 to 150
+ *      Red    | Unhealthy                     | 55.5 to 150.4 | 151 to 200
+ */
+
+
+
+File logfile;
 
 SoftwareSerial gpsSerial(8, 7);
 SoftwareSerial pmsSerial(2, 3);
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
-Adafruit_GPS GPS(&gpsSerial);
+char GPSBuff[100];
+size_t len;
 
 /* Data Structures */
+// TODO Strip struct of data we won't use
 struct pms5003data {
   uint16_t framelen;
   uint16_t pm10_standard, pm25_standard, pm100_standard;
@@ -15,95 +61,111 @@ struct pms5003data {
   uint16_t unused;
   uint16_t checksum;
 };
+/*******************/
 
-struct gpsData {
-  uint16_t checksum;
-};
-
-
-struct gpsData gpsSensorData;
 struct pms5003data pmSensorData;
 
 void setup() {
-  /* Debug output */
-  Serial.begin(115200);
+  /* LED Startup */
+  pixels.begin();
+  pixels.clear();
+  /***************/
   
+  /* SD card setup */
+  pinMode(chipSelect, OUTPUT); //set pin 10 as output to SD
+  if (!SD.begin(chipSelect)) { // Begin SD card on pin10
+    pixels.setPixelColor(SDC, pixels.Color(255, 0, 0)); // RED
+  } else {
+    char filename[15];
+    strcpy(filename, "AQI_GPS.TXT");
+    logfile = SD.open(filename, FILE_WRITE);
+    if(!logfile) {
+      pixels.setPixelColor(SDC, pixels.Color(255, 255, 0)); // YELLOW
+    } else {
+      pixels.setPixelColor(SDC, pixels.Color(0, 0, 255)); // BLUE
+    }
+  }
+  pixels.show();
+  /****************/
+  
+  /* Debug output */
+  if (DEBUG) Serial.begin(115200);
+  /****************/
+
   /* GPS Initialization */
-  GPS.begin(9600);
-  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA); // data to collect
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // data collection rate
+  if (GPS_ENABLE) {
+    if(!gpsSerial) {
+      pixels.setPixelColor(GPS, pixels.Color(255, 0, 0)); // RED
+    } else {
+      gpsSerial.begin(9600);
+      gpsSerial.println(PMTK_SET_NMEA_OUTPUT_GLLONLY); // data to collect
+      gpsSerial.println(PMTK_SET_NMEA_UPDATE_1HZ); // data collection rate
+      pixels.setPixelColor(GPS, pixels.Color(255, 255, 0)); // YELLOW
+    }
+  }
+  pixels.show();
+  /**********************/
 
   /* PM2.5 Initialization */
-  pmsSerial.begin(9600);
+  if(!pmsSerial) {
+    pixels.setPixelColor(PMS, pixels.Color(255, 0, 0)); // RED
+  } else {
+    pmsSerial.begin(9600);
+    pixels.setPixelColor(PMS, pixels.Color(0, 0, 255)); // BLUE
+  }
+  pixels.show();
+  /************************/
 }
 
 void loop() {
-  // First Check pm sensor for data
-  if (readPMSdata(&pmsSerial)) { 
-    // Data has been read into pmSensorData
-    debugPMS();
-    if (GPS.newNMEAreceived()) {
-      if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
-        return;  // we can fail to parse a sentence in which case we should just wait for another
+//   First Check pm sensor for data
+  pmsSerial.listen();
+  if (readPMSdata(&pmsSerial)) {
+    if (GPS_ENABLE) {
+      gpsSerial.listen();
+      delay(1000);
+      if (readGPSdata(&gpsSerial)) {
+        if (valid()) {
+          if (fix()) {
+            pixels.setPixelColor(GPS, pixels.Color(0, 0, 255)); // BLUE
+            pixels.show();
+            if (DEBUG) {
+              logToSerial();
+            } else {
+              logToSD();
+            }
+          } else {
+            pixels.setPixelColor(GPS, pixels.Color(255, 255, 0)); // YELLOW
+            pixels.show();
+          }
+        }
+      }
+    } else {
+      logToSD();
     }
-    Serial.print("\nTime: ");
-    if (GPS.hour < 10) { Serial.print('0'); }
-    Serial.print(GPS.hour, DEC); Serial.print(':');
-    if (GPS.minute < 10) { Serial.print('0'); }
-    Serial.print(GPS.minute, DEC); Serial.print(':');
-    if (GPS.seconds < 10) { Serial.print('0'); }
-    Serial.print(GPS.seconds, DEC); Serial.print('.');
-    if (GPS.milliseconds < 10) {
-      Serial.print("00");
-    } else if (GPS.milliseconds > 9 && GPS.milliseconds < 100) {
-      Serial.print("0");
-    }
-    Serial.println(GPS.milliseconds);
-    Serial.print("Date: ");
-    Serial.print(GPS.day, DEC); Serial.print('/');
-    Serial.print(GPS.month, DEC); Serial.print("/20");
-    Serial.println(GPS.year, DEC);
-    Serial.print("Fix: "); Serial.print((int)GPS.fix);
-    Serial.print(" quality: "); Serial.println((int)GPS.fixquality);
-    if (GPS.fix) {
-      Serial.print("Location: ");
-      Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
-      Serial.print(", ");
-      Serial.print(GPS.longitude, 4); Serial.println(GPS.lon);
-
-      Serial.print("Speed (knots): "); Serial.println(GPS.speed);
-      Serial.print("Angle: "); Serial.println(GPS.angle);
-      Serial.print("Altitude: "); Serial.println(GPS.altitude);
-      Serial.print("Satellites: "); Serial.println((int)GPS.satellites);
-    }
+    setAQIled();
   }
-  // put your main code here, to run repeatedly:
 }
 
-void debugPMS()
+bool readGPSdata(Stream *s)
 {
-    Serial.println();
-    Serial.println("---------------------------------------");
-    Serial.println("Concentration Units (standard)");
-    Serial.print("PM 1.0: "); Serial.print(pmSensorData.pm10_standard);
-    Serial.print("\t\tPM 2.5: "); Serial.print(pmSensorData.pm25_standard);
-    Serial.print("\t\tPM 10: "); Serial.println(pmSensorData.pm100_standard);
-    Serial.println("---------------------------------------");
-    Serial.println("Concentration Units (environmental)");
-    Serial.print("PM 1.0: "); Serial.print(pmSensorData.pm10_env);
-    Serial.print("\t\tPM 2.5: "); Serial.print(pmSensorData.pm25_env);
-    Serial.print("\t\tPM 10: "); Serial.println(pmSensorData.pm100_env);
-    Serial.println("---------------------------------------");
-    Serial.print("Particles > 0.3um / 0.1L air:"); Serial.println(pmSensorData.particles_03um);
-    Serial.print("Particles > 0.5um / 0.1L air:"); Serial.println(pmSensorData.particles_05um);
-    Serial.print("Particles > 1.0um / 0.1L air:"); Serial.println(pmSensorData.particles_10um);
-    Serial.print("Particles > 2.5um / 0.1L air:"); Serial.println(pmSensorData.particles_25um);
-    Serial.print("Particles > 5.0um / 0.1L air:"); Serial.println(pmSensorData.particles_50um);
-    Serial.print("Particles > 10.0 um / 0.1L air:"); Serial.println(pmSensorData.particles_100um);
-    Serial.println("---------------------------------------");
+  if (! s->available()) {
+    return false;
+  }  
+  int i = 0;
+  while ( s->peek() != 0xD ) {
+    if (s->available()) {
+      GPSBuff[i] = s->read();
+      i++;
+    } 
+  }
+  len = i;
+  s->read();
+  return true;
 }
 
-bool readPMSdata(Stream *s) {
+bool readPMSdata(Stream *s)
+{
   if (! s->available()) {
     return false;
   }
@@ -129,11 +191,12 @@ bool readPMSdata(Stream *s) {
   }
  
    //debugging
-  for (uint8_t i=2; i<32; i++) {
-    Serial.print("0x"); Serial.print(buffer[i], HEX); Serial.print(", ");
+  if (DEBUG) {
+    for (uint8_t i=2; i<32; i++) {
+     // Serial.print("0x"); Serial.print(buffer[i], HEX); Serial.print(", ");
+    }
+    Serial.println();
   }
-  Serial.println();
-  
   
   // The data comes in endian'd, this solves it so it works on all platforms
   uint16_t buffer_u16[15];
@@ -144,8 +207,69 @@ bool readPMSdata(Stream *s) {
   memcpy((void *)&pmSensorData, (void *)buffer_u16, 30);
  
   if (sum != pmSensorData.checksum) {
-    Serial.println("Checksum failure");
+    if (DEBUG) Serial.println("Checksum failure");
     return false;
   }
   return true;
+}
+
+bool valid()
+{
+  char check[6] = "$GPGLL";
+  for(int i = 0; i <= 5; i++) {
+    if(i+1 < len) {
+      if(check[i] != GPSBuff[i]) return false;
+    }
+  }
+  return true;
+}
+
+bool fix()
+{
+  char *p = GPSBuff;
+  p = strchr(p, ',') + 1; // Skip to char after the next comma, this will be time, which we'll ignore.
+  p = strchr(p, ',') + 1; // this is fix data
+  p = strchr(p, ',') + 1; // Skip to char after the next comma, this will be time, which we'll ignore.
+  p = strchr(p, ',') + 1; // this is fix data
+  p = strchr(p, ',') + 1; // Skip to char after the next comma, this will be time, which we'll ignore.
+  p = strchr(p, ',') + 1; // this is fix data
+  if(*p == 'A') return true;
+  return false;
+}
+
+void setAQIled()
+{
+  if(pmSensorData.pm25_standard < 12) {
+    pixels.setPixelColor(AQI, pixels.Color(0, 255, 0)); // GREEN
+  } else if(pmSensorData.pm25_standard < 35) {
+    pixels.setPixelColor(AQI, pixels.Color(255, 255, 0)); // YELLOW
+  } else if(pmSensorData.pm25_standard < 55) {
+    pixels.setPixelColor(AQI, pixels.Color(255, 128, 0)); // ORANGE
+  } else {
+    pixels.setPixelColor(AQI, pixels.Color(255, 0, 0)); // RED    
+  }
+  pixels.show();
+}
+
+void logToSD()
+{
+  logfile.print("PM 1.0: "); logfile.print(pmSensorData.pm10_standard);
+  logfile.print("\t\tPM 2.5: "); logfile.print(pmSensorData.pm25_standard);
+  logfile.print("\t\tPM 10: "); logfile.println(pmSensorData.pm100_standard);
+  if (GPS_ENABLE) {
+    logfile.write(GPSBuff, len);
+    logfile.println();
+  }
+  logfile.flush();
+}
+
+void logToSerial()
+{
+  Serial.print("PM 1.0: "); Serial.print(pmSensorData.pm10_standard);
+  Serial.print("\t\tPM 2.5: "); Serial.print(pmSensorData.pm25_standard);
+  Serial.print("\t\tPM 10: "); Serial.println(pmSensorData.pm100_standard);
+  Serial.flush();
+  Serial.write(GPSBuff, len);
+  Serial.println();
+  Serial.flush();
 }
