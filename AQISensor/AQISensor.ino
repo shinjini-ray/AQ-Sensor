@@ -15,39 +15,18 @@
 #define PMS       2
 #define SDC       3
 #define AQI       5
-/* LED Light meanings
- *  0: System status light
- *      Blue:   Setup complete, running correctly
- *      Red:    Setup not complete, not running
- *  1: GPS Status Light    
- *      Red:    Not initialized
- *      Blue:   Initialized and fixed
- *      Yellow: Initialized but not fixed
- *  2: Pm2.5 Sensor Status Light
- *      Red:    Not initialized
- *      Blue:   Initialized
- *      Yellow: Error reading data
- *  3: SD Card Status Light
- *      Red:    Not initialized
- *      Blue:   Initialized & file opened successfully
- *      Yellow: Error Opening File
- *  4: Not used
- *  5: PM2.5 Levels
- *      Color  | Hazard Level                  | Pm2.5 levels  | AQI
- *      Green  | Good                          | 0 to 12.0     | 0 to 50
- *      Yellow | Moderate                      | 12.1 to 35.4  | 51 to 100
- *      Orange | Unhealthy for Sensitive Groups| 35.5 to 55.4  | 101 to 150
- *      Red    | Unhealthy                     | 55.5 to 150.4 | 151 to 200
- */
 
-
-
-File logfile;
+#define LIGHTLVL  255 // Brightness of LEDS scale from 1-255
+#define GOODLED 0x392CAE
+#define MODLED 0x832CAE 
+#define WARNLED 0xC04AC6
+#define HAZARDLED 0xF75EFF
 
 SoftwareSerial gpsSerial(8, 7);
 SoftwareSerial pmsSerial(2, 3);
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
+File logfile;
 char GPSBuff[100];
 size_t len;
 
@@ -74,15 +53,15 @@ void setup() {
   /* SD card setup */
   pinMode(chipSelect, OUTPUT); //set pin 10 as output to SD
   if (!SD.begin(chipSelect)) { // Begin SD card on pin10
-    pixels.setPixelColor(SDC, pixels.Color(255, 0, 0)); // RED
+    pixels.setPixelColor(SDC, pixels.Color(LIGHTLVL, 0, 0)); // RED
   } else {
     char filename[15];
     strcpy(filename, "AQI_GPS.TXT");
     logfile = SD.open(filename, FILE_WRITE);
     if(!logfile) {
-      pixels.setPixelColor(SDC, pixels.Color(255, 255, 0)); // YELLOW
+      pixels.setPixelColor(SDC, pixels.Color(LIGHTLVL, LIGHTLVL, 0)); // YELLOW
     } else {
-      pixels.setPixelColor(SDC, pixels.Color(0, 0, 255)); // BLUE
+      pixels.setPixelColor(SDC, pixels.Color(0, 0, LIGHTLVL)); // BLUE
     }
   }
   pixels.show();
@@ -90,30 +69,25 @@ void setup() {
   
   /* Debug output */
   if (DEBUG) Serial.begin(115200);
+  Serial.println("hi");
   /****************/
 
   /* GPS Initialization */
   if (GPS_ENABLE) {
     if(!gpsSerial) {
-      pixels.setPixelColor(GPS, pixels.Color(255, 0, 0)); // RED
+      pixels.setPixelColor(GPS, pixels.Color(LIGHTLVL, 0, 0)); // RED
     } else {
       gpsSerial.begin(9600);
-      gpsSerial.println(PMTK_SET_NMEA_OUTPUT_GLLONLY); // data to collect
+      gpsSerial.println(PMTK_SET_NMEA_OUTPUT_RMCONLY ); // data to collect
       gpsSerial.println(PMTK_SET_NMEA_UPDATE_1HZ); // data collection rate
-      pixels.setPixelColor(GPS, pixels.Color(255, 255, 0)); // YELLOW
+      pixels.setPixelColor(GPS, pixels.Color(LIGHTLVL, LIGHTLVL, 0)); // YELLOW
     }
   }
   pixels.show();
   /**********************/
 
   /* PM2.5 Initialization */
-  if(!pmsSerial) {
-    pixels.setPixelColor(PMS, pixels.Color(255, 0, 0)); // RED
-  } else {
-    pmsSerial.begin(9600);
-    pixels.setPixelColor(PMS, pixels.Color(0, 0, 255)); // BLUE
-  }
-  pixels.show();
+  pmsSerial.begin(9600);
   /************************/
 }
 
@@ -127,7 +101,7 @@ void loop() {
       if (readGPSdata(&gpsSerial)) {
         if (valid()) {
           if (fix()) {
-            pixels.setPixelColor(GPS, pixels.Color(0, 0, 255)); // BLUE
+            pixels.setPixelColor(GPS, pixels.Color(0, 0, LIGHTLVL)); // BLUE
             pixels.show();
             if (DEBUG) {
               logToSerial();
@@ -135,13 +109,14 @@ void loop() {
               logToSD();
             }
           } else {
-            pixels.setPixelColor(GPS, pixels.Color(255, 255, 0)); // YELLOW
+            pixels.setPixelColor(GPS, pixels.Color(LIGHTLVL, LIGHTLVL, 0)); // YELLOW
             pixels.show();
           }
         }
       }
     } else {
-      logToSD();
+      if (DEBUG) logToSerial();
+      else logToSD();
     }
     setAQIled();
   }
@@ -164,8 +139,7 @@ bool readGPSdata(Stream *s)
   return true;
 }
 
-bool readPMSdata(Stream *s)
-{
+boolean readPMSdata(Stream *s) {
   if (! s->available()) {
     return false;
   }
@@ -189,14 +163,7 @@ bool readPMSdata(Stream *s)
   for (uint8_t i=0; i<30; i++) {
     sum += buffer[i];
   }
- 
-   //debugging
-  if (DEBUG) {
-    for (uint8_t i=2; i<32; i++) {
-     // Serial.print("0x"); Serial.print(buffer[i], HEX); Serial.print(", ");
-    }
-    Serial.println();
-  }
+  
   
   // The data comes in endian'd, this solves it so it works on all platforms
   uint16_t buffer_u16[15];
@@ -204,18 +171,21 @@ bool readPMSdata(Stream *s)
     buffer_u16[i] = buffer[2 + i*2 + 1];
     buffer_u16[i] += (buffer[2 + i*2] << 8);
   }
+ 
+  // put it into a nice struct :)
   memcpy((void *)&pmSensorData, (void *)buffer_u16, 30);
  
   if (sum != pmSensorData.checksum) {
     if (DEBUG) Serial.println("Checksum failure");
     return false;
   }
+  // success!
   return true;
 }
 
 bool valid()
 {
-  char check[6] = "$GPGLL";
+  char check[6] = "$GPRMC";
   for(int i = 0; i <= 5; i++) {
     if(i+1 < len) {
       if(check[i] != GPSBuff[i]) return false;
@@ -239,16 +209,33 @@ bool fix()
 
 void setAQIled()
 {
-  if(pmSensorData.pm25_standard < 12) {
-    pixels.setPixelColor(AQI, pixels.Color(0, 255, 0)); // GREEN
-  } else if(pmSensorData.pm25_standard < 35) {
-    pixels.setPixelColor(AQI, pixels.Color(255, 255, 0)); // YELLOW
-  } else if(pmSensorData.pm25_standard < 55) {
-    pixels.setPixelColor(AQI, pixels.Color(255, 128, 0)); // ORANGE
+  long int color = 0;
+  int R, G, B;
+  if(pmSensorData.pm25_standard <= 12) {
+    color = GOODLED;
+  } else if(pmSensorData.pm25_standard <= 35) {
+    color = MODLED;
+  } else if(pmSensorData.pm25_standard <= 55) {
+    color = WARNLED;
   } else {
-    pixels.setPixelColor(AQI, pixels.Color(255, 0, 0)); // RED    
+    color = HAZARDLED;
   }
+  R = color>>16;
+  G = color>>8 & 0xff;
+  B = color & 0xff;
   pixels.show();
+  if (!DEBUG) {
+    for(int i = 0; i < 8; i++) {
+      pixels.setPixelColor(i, pixels.Color(R, G, B));
+      pixels.show();
+    }
+  } else {
+    for(int i = 0; i < 8; i++) {
+      pixels.setPixelColor(i, pixels.Color(R, G, B));
+     // pixels.setPixelColor(AQI, pixels.Color(LIGHTLVL*R, LIGHTLVL*G + LIGHTLVL*O*0.5, 0));
+      pixels.show();
+    }
+  }
 }
 
 void logToSD()
@@ -269,7 +256,9 @@ void logToSerial()
   Serial.print("\t\tPM 2.5: "); Serial.print(pmSensorData.pm25_standard);
   Serial.print("\t\tPM 10: "); Serial.println(pmSensorData.pm100_standard);
   Serial.flush();
-  Serial.write(GPSBuff, len);
-  Serial.println();
+  if (GPS_ENABLE) {
+    Serial.write(GPSBuff, len);
+    Serial.println();
+  }
   Serial.flush();
 }
